@@ -60,6 +60,9 @@ pub mod env {
     pub const ENDPOINT: &str = "SPIN_KV_S3_ENDPOINT";
     /// Fallback for `allow_http` (`1`/`true`), for local development.
     pub const ALLOW_HTTP: &str = "SPIN_KV_S3_ALLOW_HTTP";
+    /// Fallback for `express` (`1`/`true`): use S3 Express One Zone
+    /// session authentication (directory buckets).
+    pub const EXPRESS: &str = "SPIN_KV_S3_EXPRESS";
 }
 
 /// The `s3` key-value store type.
@@ -111,6 +114,60 @@ pub struct S3KeyValueRuntimeConfig {
     /// Permit `http://` endpoints. Falls back to `SPIN_KV_S3_ALLOW_HTTP`.
     #[serde(default)]
     pub allow_http: Option<bool>,
+    /// Use S3 Express One Zone session authentication (directory
+    /// buckets). Falls back to `SPIN_KV_S3_EXPRESS`. Note that directory
+    /// buckets authorize at bucket granularity, so prefix-scoped
+    /// credentials - the pool model's isolation - do not apply; see the
+    /// README before enabling this in multi-tenant deployments.
+    #[serde(default)]
+    pub express: Option<bool>,
+}
+
+/// The fully resolved configuration: every table field with its
+/// environment fallback applied.
+struct Resolved {
+    bucket: String,
+    prefix: String,
+    region: Option<String>,
+    endpoint: Option<String>,
+    access_key: Option<String>,
+    secret_key: Option<String>,
+    token: Option<String>,
+    allow_http: bool,
+    express: bool,
+}
+
+/// Applies environment fallbacks to `config`. `var` is the environment
+/// lookup, injectable for tests.
+fn resolve_config(
+    config: S3KeyValueRuntimeConfig,
+    var: impl Fn(&str) -> Option<String>,
+) -> anyhow::Result<Resolved> {
+    let flag = |value: Option<bool>, name: &str| {
+        value.unwrap_or_else(|| {
+            var(name).is_some_and(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        })
+    };
+    let Some(bucket) = config.bucket.or_else(|| var(env::BUCKET)) else {
+        anyhow::bail!(
+            "s3 key-value store requires a bucket, from the `bucket` field or {}",
+            env::BUCKET
+        );
+    };
+    Ok(Resolved {
+        bucket,
+        prefix: config
+            .prefix
+            .or_else(|| var(env::PREFIX))
+            .unwrap_or_default(),
+        region: config.region,
+        endpoint: config.endpoint.or_else(|| var(env::ENDPOINT)),
+        access_key: config.access_key,
+        secret_key: config.secret_key,
+        token: config.token,
+        allow_http: flag(config.allow_http, env::ALLOW_HTTP),
+        express: flag(config.express, env::EXPRESS),
+    })
 }
 
 impl MakeKeyValueStore for S3KeyValueStore {
@@ -124,63 +181,27 @@ impl MakeKeyValueStore for S3KeyValueStore {
         &self,
         runtime_config: Self::RuntimeConfig,
     ) -> anyhow::Result<Self::StoreManager> {
-        let var = |name: &str| std::env::var(name).ok().filter(|v| !v.is_empty());
-
-        let Some(bucket) = runtime_config.bucket.clone().or_else(|| var(env::BUCKET)) else {
-            anyhow::bail!(
-                "s3 key-value store requires a bucket, from the `bucket` field or {}",
-                env::BUCKET
-            );
-        };
-        let prefix = runtime_config
-            .prefix
-            .clone()
-            .or_else(|| var(env::PREFIX))
-            .unwrap_or_default();
-        let endpoint = runtime_config
-            .endpoint
-            .clone()
-            .or_else(|| var(env::ENDPOINT));
-        let allow_http = runtime_config.allow_http.unwrap_or_else(|| {
-            var(env::ALLOW_HTTP).is_some_and(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-        });
-
-        let root = StorePath::parse(&prefix)
-            .map_err(|err| anyhow::anyhow!("invalid s3 key-value prefix {prefix:?}: {err}"))?;
-        let summary = if prefix.is_empty() {
-            format!("s3 {bucket}")
+        let resolved = resolve_config(runtime_config, |name| {
+            std::env::var(name).ok().filter(|v| !v.is_empty())
+        })?;
+        let root = StorePath::parse(&resolved.prefix).map_err(|err| {
+            anyhow::anyhow!("invalid s3 key-value prefix {:?}: {err}", resolved.prefix)
+        })?;
+        let summary = if resolved.prefix.is_empty() {
+            format!("s3 {}", resolved.bucket)
         } else {
-            format!("s3 {bucket}/{prefix}")
+            format!("s3 {}/{}", resolved.bucket, resolved.prefix)
         };
-
-        let client = Box::pin(build_client(BuildClient {
-            bucket,
-            region: runtime_config.region,
-            endpoint,
-            access_key: runtime_config.access_key,
-            secret_key: runtime_config.secret_key,
-            token: runtime_config.token,
-            allow_http,
-        }));
+        let client = Box::pin(build_client(resolved));
         Ok(KeyValueS3::new(summary, root, client))
     }
-}
-
-struct BuildClient {
-    bucket: String,
-    region: Option<String>,
-    endpoint: Option<String>,
-    access_key: Option<String>,
-    secret_key: Option<String>,
-    token: Option<String>,
-    allow_http: bool,
 }
 
 /// Builds the S3 client, resolving credentials the way Spin's other AWS
 /// providers do: an explicit `access_key`/`secret_key` pair is used
 /// directly, and otherwise the standard AWS configuration chain supplies
 /// credentials with its own caching and refresh.
-async fn build_client(config: BuildClient) -> Result<Arc<dyn ObjectStore>, String> {
+async fn build_client(config: Resolved) -> Result<Arc<dyn ObjectStore>, String> {
     let mut builder = AmazonS3Builder::new().with_bucket_name(&config.bucket);
 
     let mut region = config.region;
@@ -220,6 +241,9 @@ async fn build_client(config: BuildClient) -> Result<Arc<dyn ObjectStore>, Strin
     }
     if config.allow_http {
         builder = builder.with_allow_http(true);
+    }
+    if config.express {
+        builder = builder.with_s3_express(true);
     }
 
     match builder.build() {
@@ -277,10 +301,45 @@ mod tests {
 
     #[test]
     fn bucket_is_required_from_somewhere() {
-        // No table value and (in this test environment) no env value.
         let config: S3KeyValueRuntimeConfig = toml::from_str("").unwrap();
-        if std::env::var(env::BUCKET).is_err() {
-            assert!(S3KeyValueStore::new().make_store(config).is_err());
-        }
+        assert!(resolve_config(config, |_| None).is_err());
+    }
+
+    #[test]
+    fn environment_fills_what_the_table_leaves_out() {
+        let config: S3KeyValueRuntimeConfig = toml::from_str("").unwrap();
+        let resolved = resolve_config(config, |name| match name {
+            env::BUCKET => Some("platform-bucket".into()),
+            env::PREFIX => Some("tenant-a".into()),
+            env::EXPRESS => Some("1".into()),
+            _ => None,
+        })
+        .unwrap();
+        assert_eq!(resolved.bucket, "platform-bucket");
+        assert_eq!(resolved.prefix, "tenant-a");
+        assert!(resolved.express);
+        assert!(!resolved.allow_http);
+    }
+
+    #[test]
+    fn table_values_override_the_environment() {
+        let config: S3KeyValueRuntimeConfig = toml::from_str(
+            r#"
+            bucket = "mine"
+            prefix = "my/prefix"
+            express = false
+            "#,
+        )
+        .unwrap();
+        let resolved = resolve_config(config, |name| match name {
+            env::BUCKET => Some("platform-bucket".into()),
+            env::PREFIX => Some("tenant-a".into()),
+            env::EXPRESS => Some("1".into()),
+            _ => None,
+        })
+        .unwrap();
+        assert_eq!(resolved.bucket, "mine");
+        assert_eq!(resolved.prefix, "my/prefix");
+        assert!(!resolved.express);
     }
 }
