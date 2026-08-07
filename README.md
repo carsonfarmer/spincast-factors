@@ -61,21 +61,34 @@ cargo test --workspace    # includes behavioural tests over an in-memory
 cargo clippy --workspace --all-targets
 ```
 
-### Real-S3 qualification
+### S3-server suite (MinIO)
 
 The default suite runs against an in-memory object store — fast, offline,
-and thorough for the adapter, but not proof of AWS S3's error mapping,
-pagination, read-after-write visibility, or credential handling. A separate
-opt-in suite runs the same operations against a real, disposable bucket:
+and thorough for the adapter, but it never crosses a network. A second
+suite runs the same operations against a real S3-protocol server over
+HTTP: MinIO, running locally. No cloud account, no cloud resources, no
+cloud credentials — ever.
 
 ```sh
-SPINCAST_S3_TEST_BUCKET=my-disposable-bucket SPINCAST_S3_TEST_REGION=us-east-1     cargo test -p spin-key-value-s3 --test real_s3 -- --test-threads=1
+docker run -d --rm -p 9000:9000 --name spincast-minio \
+    -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \
+    minio/minio server /data
+curl -X PUT http://127.0.0.1:9000/spincast-test \
+    --aws-sigv4 "aws:amz:us-east-1:s3" --user minioadmin:minioadmin
+
+SPINCAST_S3_TEST_BUCKET=spincast-test \
+SPINCAST_S3_TEST_ENDPOINT=http://127.0.0.1:9000 \
+SPINCAST_S3_TEST_REGION=us-east-1 \
+AWS_ACCESS_KEY_ID=minioadmin AWS_SECRET_ACCESS_KEY=minioadmin \
+    cargo test -p spin-key-value-s3 --test s3_server
 ```
 
-Credentials come from the standard AWS chain. Without `SPINCAST_S3_TEST_BUCKET`
-every case skips, so ordinary `cargo test` and CI never create live
-resources. Each case writes under a unique run prefix and deletes everything
-it created during teardown, verifying no residue remains.
+Without `SPINCAST_S3_TEST_BUCKET` every case skips, so plain `cargo test`
+stays offline. CI (`s3-server.yml`) starts a MinIO container and runs the
+suite on every push. Each case writes under a unique run prefix and
+deletes everything it created during teardown, verifying nothing remains.
+One note: MinIO speaks the S3 protocol but is not AWS; behavior
+differences between the two are out of this suite's scope.
 
 Spin is a git dependency on **upstream** `spinframework/spin`, pinned
 to the latest release (`v4.0.2`); the crates use only interfaces stock

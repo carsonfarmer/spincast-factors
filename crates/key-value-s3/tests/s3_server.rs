@@ -1,31 +1,36 @@
-//! Real-service qualification suite.
+//! Integration suite against a real S3-protocol server, normally MinIO
+//! running locally.
 //!
 //! The default test suite (`tests/store.rs`) runs against
-//! `object_store::memory::InMemory`. That exercises the adapter thoroughly
-//! and is fast and offline, but it is **not** proof of AWS S3 behavior:
-//! InMemory implements conditional writes, listing, and error variants, but
-//! its semantics are not guaranteed to match S3's error mapping, pagination,
-//! read-after-write visibility, or credential handling.
+//! `object_store::memory::InMemory` - fast and offline, but it does not
+//! exercise a network endpoint: HTTP conditional writes, list pagination,
+//! and error mapping from real server responses. This suite runs the same
+//! operations against an S3-compatible server over HTTP.
 //!
-//! This suite runs the same operations against a real, caller-supplied
-//! bucket. It is opt-in: without the environment below every test is skipped
-//! (reported as passed but doing nothing), so ordinary `cargo test` and CI
-//! never create live resources.
+//! It is gated on `SPINCAST_S3_TEST_BUCKET`: without it every case skips,
+//! so plain `cargo test` stays offline. CI starts a MinIO container and
+//! runs it on every push - no cloud resources, no cloud credentials, ever.
 //!
-//! # Running
+//! # Running locally
 //!
 //! ```sh
-//! SPINCAST_S3_TEST_BUCKET=my-disposable-bucket \
+//! docker run -d --rm -p 9000:9000 --name spincast-minio \
+//!     -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \
+//!     minio/minio server /data
+//! curl -X PUT http://127.0.0.1:9000/spincast-test \
+//!     --aws-sigv4 "aws:amz:us-east-1:s3" --user minioadmin:minioadmin
+//!
+//! SPINCAST_S3_TEST_BUCKET=spincast-test \
+//! SPINCAST_S3_TEST_ENDPOINT=http://127.0.0.1:9000 \
 //! SPINCAST_S3_TEST_REGION=us-east-1 \
-//!     cargo test -p spin-key-value-s3 --test real_s3 -- --test-threads=1
+//! AWS_ACCESS_KEY_ID=minioadmin AWS_SECRET_ACCESS_KEY=minioadmin \
+//!     cargo test -p spin-key-value-s3 --test s3_server
 //! ```
 //!
-//! Credentials come from the standard AWS chain (environment, profile, SSO,
-//! IMDS). Every test writes under a unique run prefix
-//! (`spincast-kv-test/<nanos>/…`) and deletes everything it created during
-//! teardown, verifying no residue remains. Use a disposable bucket; the
-//! suite never claims LocalStack, MinIO, or the in-memory adapter prove AWS
-//! behavior.
+//! Every case writes under a unique run prefix and deletes everything it
+//! created during teardown, verifying no residue remains. One honesty
+//! note: MinIO speaks the S3 protocol but is not AWS; behavior differences
+//! between the two are out of this suite's scope.
 
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
