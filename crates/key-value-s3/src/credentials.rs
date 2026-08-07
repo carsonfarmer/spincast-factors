@@ -7,6 +7,21 @@
 //! credential chain, which cannot represent many independently scoped
 //! applications in one process.
 //!
+//! This is the one place the AWS SDK's own refresh cannot help. The SDK
+//! auto-refreshes *process-global* credential sources (environment,
+//! instance role, container endpoint): one process, one identity - in a
+//! shared runtime, the host's own identity, not any tenant's. And
+//! `object_store`'s per-client `CredentialProvider` seam does no caching
+//! or refreshing itself: it is consulted on every request and expects the
+//! provider to handle freshness. So per-manager credentials need a
+//! per-manager cache, and this module is that and nothing more.
+//!
+//! The lifetimes that make it matter: an STS session lasts 15 minutes to
+//! 12 hours (1 hour by default, and never more than 1 hour when minted
+//! through role chaining), while a manager lives as long as its
+//! application stays resident - for a busy application, indefinitely.
+//! Requests are brief; the manager holding the credential is not.
+//!
 //! The platform implements [`RenewCredentials`]; [`RefreshingCredentials`]
 //! wraps it with caching, early renewal, and coalescing, and plugs into the
 //! S3 client as its credential provider. Each manager gets its own instance:
