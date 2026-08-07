@@ -10,10 +10,8 @@ the providers it wants to expose, one line each.
 
 ## The tenant model
 
-These providers are **environment-first**: platform-injected environment
-variables carry *identity* (bucket, tenant-root prefix, scoped
-credentials), and a tenant's runtime config carries only *intent* — which
-labelled store to use:
+A tenant's runtime config carries only *intent* — which labelled store to
+use:
 
 ```toml
 # The whole tenant-side config:
@@ -22,16 +20,32 @@ type = "s3"
 ```
 
 The label becomes a path segment under the tenant's root, so tenants
-organize stores freely and can address nothing else. Because tenants may
-author their own runtime config, no config value is trusted for isolation:
-the platform mints each tenant's credentials (one shared IAM role + an STS
-inline session policy scoping to the tenant prefix) outside tenant reach,
-and the store service itself refuses anything beyond them. Config chooses
-which door to walk up to; the credential decides which doors open.
+organize stores freely and can address nothing else. Identity — bucket,
+tenant-root prefix, credentials — comes from whoever is trusted, in one of
+two construction modes:
 
-Config fields (`bucket`, `prefix`, `region`, `endpoint`, credentials,
-`allow_http`, …) exist as overrides for single-tenant/self-hosted use,
-where operator and tenant are the same party.
+- **Managed** (`ManagedStore` + `ManagedS3KeyValueStore`): for shared
+  multi-tenant runtimes. The platform host supplies identity per store
+  manager from its own records. The tenant-facing table is empty by
+  definition — any field a tenant writes is rejected as an unknown field
+  before a client exists. No environment variables are read: process-global
+  state cannot represent many tenants in one process. Credentials are
+  typically renewable STS issuances (`RenewCredentials`) scoped to the
+  tenant prefix; the provider caches each issuance, renews it near expiry,
+  and coalesces concurrent renewals — so a parked app resumes cleanly after
+  its credentials expired.
+- **Self-hosted / BYO** (`S3KeyValueStore`): operator and tenant are the
+  same party. The table carries identity, with `SPIN_KV_S3_*` environment
+  fallbacks for a one-tenant-per-process shape.
+
+The modes never mix: both makers claim the `s3` type string, so
+registering both in one runtime fails loudly at startup.
+
+Either way the enforcement is the credential: the platform mints each
+tenant's credentials (one shared IAM role + an STS inline session policy
+scoping to the tenant prefix) outside tenant reach, and S3 itself refuses
+anything beyond them. Config chooses which door to walk up to; the
+credential decides which doors open.
 
 (S3 Express One Zone is deliberately not supported: directory buckets
 authorize at bucket granularity, so prefix-scoped credentials - the pool
