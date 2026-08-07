@@ -10,13 +10,49 @@ use spin_factor_key_value::{
     Cas, Error, Store, StoreManager, SwapError, log_error, log_error_v3, v3,
 };
 
-/// How many conditional-write attempts an `increment` makes before giving
-/// up. Contention on a single counter re-reads and retries; a bound keeps a
-/// pathological hot key from spinning forever.
-const INCREMENT_ATTEMPTS: usize = 32;
+/// Bounds on a single store's operations, checked before any allocation or
+/// network access. The defaults suit a small multi-tenant Wasm runtime,
+/// where values are buffered in host memory and hostile input must not turn
+/// into unbounded memory or requests; a trusted platform constructor can
+/// override them. Account-level storage quotas are a separate, platform
+/// concern - these are per-operation limits only.
+#[derive(Clone, Debug)]
+pub struct Limits {
+    /// The largest an *encoded* key may be. S3 keys are capped at 1024
+    /// bytes total; the default leaves room for the prefix and label.
+    pub max_key_bytes: usize,
+    /// The largest a value may be. S3 itself allows 5 TB, which is far too
+    /// large to buffer in a shared runtime.
+    pub max_value_bytes: usize,
+    /// The most entries a single batch call may carry.
+    pub max_batch_len: usize,
+    /// The most value bytes a single batch call may carry in total.
+    pub max_batch_bytes: usize,
+    /// How many object requests a batch call runs at once.
+    pub max_concurrent_requests: usize,
+    /// How many conditional-write attempts an `increment` makes before
+    /// giving up, so a contended hot key cannot spin forever.
+    pub max_conditional_attempts: usize,
+}
 
-/// Concurrency for the batch operations.
-const BATCH_CONCURRENCY: usize = 8;
+impl Default for Limits {
+    fn default() -> Self {
+        Self {
+            max_key_bytes: 512,
+            max_value_bytes: 1 << 20, // 1 MiB
+            max_batch_len: 512,
+            max_batch_bytes: 8 << 20, // 8 MiB
+            max_concurrent_requests: 8,
+            max_conditional_attempts: 32,
+        }
+    }
+}
+
+/// A stable over-limit error carrying only sizes - never a key, value,
+/// credential, or provider response body.
+fn over_limit(what: &str, actual: usize, max: usize) -> Error {
+    Error::Other(format!("{what} of {actual} exceeds the limit of {max}"))
+}
 
 /// A key-value store manager over a bucket prefix.
 ///
@@ -27,6 +63,7 @@ pub struct KeyValueS3 {
     summary: String,
     root: StorePath,
     client: ClientCell,
+    limits: Arc<Limits>,
 }
 
 /// The deferred client initialization a [`KeyValueS3`] is constructed
@@ -45,7 +82,14 @@ impl KeyValueS3 {
             summary,
             root,
             client: async_once_cell::Lazy::from_future(client),
+            limits: Arc::new(Limits::default()),
         }
+    }
+
+    /// Sets the per-operation limits, replacing the defaults.
+    pub fn with_limits(mut self, limits: Limits) -> Self {
+        self.limits = Arc::new(limits);
+        self
     }
 }
 
@@ -59,6 +103,7 @@ impl StoreManager for KeyValueS3 {
         Ok(Arc::new(S3Store {
             store: client,
             root: join_encoded(&self.root, &encode_key(name)),
+            limits: self.limits.clone(),
         }))
     }
 
@@ -76,16 +121,34 @@ struct S3Store {
     store: Arc<dyn ObjectStore>,
     /// The prefix all of this store's objects live under.
     root: StorePath,
+    limits: Arc<Limits>,
 }
 
 impl S3Store {
-    fn path(&self, key: &str) -> StorePath {
-        join_encoded(&self.root, &encode_key(key))
+    /// Validates `key` against the key-size limit and returns its object
+    /// path. Rejection happens here, before any network access.
+    fn path(&self, key: &str) -> Result<StorePath, Error> {
+        let encoded = encode_key(key);
+        if encoded.len() > self.limits.max_key_bytes {
+            return Err(over_limit(
+                "key bytes",
+                encoded.len(),
+                self.limits.max_key_bytes,
+            ));
+        }
+        Ok(join_encoded(&self.root, &encoded))
+    }
+
+    fn check_batch_len(&self, len: usize) -> Result<(), Error> {
+        if len > self.limits.max_batch_len {
+            return Err(over_limit("batch entries", len, self.limits.max_batch_len));
+        }
+        Ok(())
     }
 
     /// The current value and version of `key`, `None` when absent.
     async fn fetch(&self, key: &str) -> Result<Option<(Vec<u8>, UpdateVersion)>, Error> {
-        match self.store.get(&self.path(key)).await {
+        match self.store.get(&self.path(key)?).await {
             Ok(result) => {
                 let version = UpdateVersion {
                     e_tag: result.meta.e_tag.clone(),
@@ -115,22 +178,30 @@ impl Store for S3Store {
     }
 
     async fn set(&self, key: &str, value: &[u8]) -> Result<(), Error> {
+        if value.len() > self.limits.max_value_bytes {
+            return Err(over_limit(
+                "value bytes",
+                value.len(),
+                self.limits.max_value_bytes,
+            ));
+        }
+        let path = self.path(key)?;
         self.store
-            .put(&self.path(key), PutPayload::from(value.to_vec()))
+            .put(&path, PutPayload::from(value.to_vec()))
             .await
             .map_err(store_err)?;
         Ok(())
     }
 
     async fn delete(&self, key: &str) -> Result<(), Error> {
-        match self.store.delete(&self.path(key)).await {
+        match self.store.delete(&self.path(key)?).await {
             Ok(()) | Err(object_store::Error::NotFound { .. }) => Ok(()),
             Err(err) => Err(store_err(err)),
         }
     }
 
     async fn exists(&self, key: &str) -> Result<bool, Error> {
-        match self.store.head(&self.path(key)).await {
+        match self.store.head(&self.path(key)?).await {
             Ok(_) => Ok(true),
             Err(object_store::Error::NotFound { .. }) => Ok(false),
             Err(err) => Err(store_err(err)),
@@ -196,12 +267,16 @@ impl Store for S3Store {
         keys: Vec<String>,
         max_result_bytes: usize,
     ) -> Result<Vec<(String, Option<Vec<u8>>)>, Error> {
+        self.check_batch_len(keys.len())?;
+        for key in &keys {
+            self.path(key)?;
+        }
         let mut fetched = futures::stream::iter(keys)
             .map(|key| async move {
                 let value = self.fetch(&key).await?.map(|(bytes, _)| bytes);
                 Ok::<_, Error>((key, value))
             })
-            .buffer_unordered(BATCH_CONCURRENCY);
+            .buffer_unordered(self.limits.max_concurrent_requests);
 
         let mut results = Vec::new();
         let mut byte_count = 0;
@@ -221,26 +296,51 @@ impl Store for S3Store {
     }
 
     async fn set_many(&self, key_values: Vec<(String, Vec<u8>)>) -> Result<(), Error> {
+        self.check_batch_len(key_values.len())?;
+        let mut aggregate = 0usize;
+        for (key, value) in &key_values {
+            self.path(key)?;
+            if value.len() > self.limits.max_value_bytes {
+                return Err(over_limit(
+                    "value bytes",
+                    value.len(),
+                    self.limits.max_value_bytes,
+                ));
+            }
+            aggregate = aggregate.saturating_add(value.len());
+            if aggregate > self.limits.max_batch_bytes {
+                return Err(over_limit(
+                    "batch bytes",
+                    aggregate,
+                    self.limits.max_batch_bytes,
+                ));
+            }
+        }
         futures::stream::iter(key_values)
             .map(|(key, value)| async move { self.set(&key, &value).await })
-            .buffer_unordered(BATCH_CONCURRENCY)
+            .buffer_unordered(self.limits.max_concurrent_requests)
             .try_collect()
             .await
     }
 
     async fn delete_many(&self, keys: Vec<String>) -> Result<(), Error> {
+        self.check_batch_len(keys.len())?;
+        for key in &keys {
+            self.path(key)?;
+        }
         futures::stream::iter(keys)
             .map(|key| async move { self.delete(&key).await })
-            .buffer_unordered(BATCH_CONCURRENCY)
+            .buffer_unordered(self.limits.max_concurrent_requests)
             .try_collect()
             .await
     }
 
     async fn increment(&self, key: String, delta: i64) -> Result<i64, Error> {
+        let path = self.path(&key)?;
         // Read-modify-write with a conditional put: the write succeeds only
         // if the object is unchanged since the read (or still absent), so
         // concurrent increments retry rather than lose updates.
-        for _ in 0..INCREMENT_ATTEMPTS {
+        for _ in 0..self.limits.max_conditional_attempts {
             let current = self.fetch(&key).await?;
             let old_val = match &current {
                 Some((bytes, _)) => Some(
@@ -263,7 +363,7 @@ impl Store for S3Store {
             match self
                 .store
                 .put_opts(
-                    &self.path(&key),
+                    &path,
                     PutPayload::from(new_val.to_string().into_bytes()),
                     options,
                 )
@@ -278,7 +378,8 @@ impl Store for S3Store {
             }
         }
         Err(Error::Other(format!(
-            "increment of {key} kept losing conditional writes after {INCREMENT_ATTEMPTS} attempts"
+            "increment lost {} conditional writes to contention",
+            self.limits.max_conditional_attempts
         )))
     }
 
@@ -289,7 +390,7 @@ impl Store for S3Store {
     ) -> Result<Arc<dyn Cas>, Error> {
         Ok(Arc::new(S3Cas {
             store: self.store.clone(),
-            path: self.path(key),
+            path: self.path(key)?,
             key: key.to_string(),
             bucket_rep,
             state: Mutex::new(CasState::Unknown),
@@ -393,10 +494,15 @@ fn join_encoded(root: &StorePath, encoded: &str) -> StorePath {
 }
 
 fn store_err(err: object_store::Error) -> Error {
-    match &err {
+    match err {
         object_store::Error::PermissionDenied { .. }
         | object_store::Error::Unauthenticated { .. } => Error::AccessDenied,
-        _ => log_error(err),
+        other => {
+            // Detail is logged for the operator; the guest gets a stable
+            // message with no bucket, key, or provider response body.
+            tracing::warn!("s3 key-value error: {other:?}");
+            Error::Other("storage backend error".into())
+        }
     }
 }
 

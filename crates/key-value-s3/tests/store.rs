@@ -239,3 +239,113 @@ async fn result_size_limits_are_enforced() {
     assert!(store.get_keys(64).await.is_err());
     assert!(store.get_keys(NO_LIMIT).await.is_ok());
 }
+
+// --- Operation and memory bounds (issue #3) ---
+
+use spin_key_value_s3::Limits;
+
+/// A store with tiny, exact limits so bound tests read clearly.
+async fn bounded_store(limits: Limits) -> Arc<dyn Store> {
+    KeyValueS3::new(
+        "test".into(),
+        StorePath::parse("t").unwrap(),
+        Box::pin(async move { Ok(shared()) }),
+    )
+    .with_limits(limits)
+    .get("default")
+    .await
+    .unwrap()
+}
+
+#[tokio::test]
+async fn value_size_bound_is_exact() {
+    let limits = Limits {
+        max_value_bytes: 100,
+        ..Default::default()
+    };
+    let store = bounded_store(limits).await;
+
+    store.set("k", &[0u8; 100]).await.unwrap(); // exactly at limit: ok
+    let over = store.set("k", &[0u8; 101]).await; // one over: rejected
+    assert!(over.is_err());
+    // The error carries only sizes, never the value bytes.
+    let msg = format!("{:?}", over.unwrap_err());
+    assert!(msg.contains("101") && msg.contains("100"), "{msg}");
+}
+
+#[tokio::test]
+async fn key_size_bound_is_exact() {
+    let limits = Limits {
+        max_key_bytes: 8,
+        ..Default::default()
+    };
+    let store = bounded_store(limits).await;
+
+    store.set("12345678", b"v").await.unwrap(); // encoded length 8: ok
+    assert!(store.set("123456789", b"v").await.is_err()); // 9: rejected
+    // Reads of an over-limit key are refused before any network call.
+    assert!(store.get("123456789", NO_LIMIT).await.is_err());
+    assert!(store.exists("123456789").await.is_err());
+    assert!(store.delete("123456789").await.is_err());
+}
+
+#[tokio::test]
+async fn batch_length_bound_is_exact() {
+    let limits = Limits {
+        max_batch_len: 3,
+        ..Default::default()
+    };
+    let store = bounded_store(limits).await;
+
+    let three: Vec<(String, Vec<u8>)> = (0..3).map(|i| (format!("k{i}"), b"v".to_vec())).collect();
+    store.set_many(three).await.unwrap(); // exactly at limit: ok
+
+    let four: Vec<(String, Vec<u8>)> = (0..4).map(|i| (format!("k{i}"), b"v".to_vec())).collect();
+    assert!(store.set_many(four).await.is_err()); // one over: rejected
+
+    let four_keys: Vec<String> = (0..4).map(|i| format!("k{i}")).collect();
+    assert!(store.get_many(four_keys.clone(), NO_LIMIT).await.is_err());
+    assert!(store.delete_many(four_keys).await.is_err());
+}
+
+#[tokio::test]
+async fn batch_aggregate_bytes_bound() {
+    let limits = Limits {
+        max_value_bytes: 1000,
+        max_batch_bytes: 150,
+        ..Default::default()
+    };
+    let store = bounded_store(limits).await;
+
+    // Each value is within max_value_bytes, but together they exceed the
+    // batch aggregate.
+    let kvs: Vec<(String, Vec<u8>)> = (0..3).map(|i| (format!("k{i}"), vec![0u8; 100])).collect();
+    assert!(store.set_many(kvs).await.is_err());
+}
+
+#[tokio::test]
+async fn hostile_batch_is_rejected_before_any_write() {
+    let limits = Limits {
+        max_batch_len: 10,
+        ..Default::default()
+    };
+    let store = bounded_store(limits).await;
+
+    // A million-entry batch never touches the store.
+    let huge: Vec<(String, Vec<u8>)> = (0..1_000_000)
+        .map(|i| (format!("k{i}"), b"v".to_vec()))
+        .collect();
+    assert!(store.set_many(huge).await.is_err());
+    assert!(store.get_keys(NO_LIMIT).await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn increment_attempts_are_bounded() {
+    // One attempt: the loop cannot spin. A normal increment still succeeds.
+    let limits = Limits {
+        max_conditional_attempts: 1,
+        ..Default::default()
+    };
+    let store = bounded_store(limits).await;
+    assert_eq!(store.increment("n".into(), 3).await.unwrap(), 3);
+}

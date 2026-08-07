@@ -61,7 +61,7 @@ pub use credentials::{RenewCredentials, ScopedCredentials};
 pub use managed::{
     ManagedCredentials, ManagedS3KeyValueRuntimeConfig, ManagedS3KeyValueStore, ManagedStore,
 };
-pub use store::{ClientFuture, KeyValueS3};
+pub use store::{ClientFuture, KeyValueS3, Limits};
 
 /// The environment variables the platform injects; each is the fallback
 /// for the config field of the same name.

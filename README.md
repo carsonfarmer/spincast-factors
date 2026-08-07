@@ -67,6 +67,19 @@ Registering *only* credential-walled providers is the platform's second
 wall: store types whose config values are their own boundary simply do not
 exist in a tenant-facing runtime.
 
+## Operation limits
+
+Every store enforces per-operation bounds before any allocation or network
+access, so hostile input cannot turn into unbounded host memory or requests:
+encoded key size, value size, batch length, aggregate batch bytes,
+concurrent requests, and conditional-write attempts. Defaults suit a small
+multi-tenant runtime (1 MiB values, 512-entry batches, …); a trusted
+platform constructor overrides them via `Limits` (managed mode) or
+`KeyValueS3::with_limits`. Over-limit errors carry only sizes — never a key,
+value, credential, or provider response body; backend errors are logged for
+the operator and returned to the guest as a stable, detail-free message.
+Account-level storage quotas are a separate platform concern.
+
 ## Developing
 
 ```sh
