@@ -1,0 +1,30 @@
+[package]
+name = "spin-key-value-s3"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+async-once-cell = { workspace = true }
+async-trait = { workspace = true }
+aws-config = { workspace = true }
+aws-credential-types = { workspace = true }
+futures = { workspace = true }
+object_store = { workspace = true }
+serde = { workspace = true }
+spin-core = { workspace = true }
+spin-factor-key-value = { workspace = true }
+tokio = { workspace = true, features = ["sync"] }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread"] }
+toml = { workspace = true }
+
+[lints]
+workspace = true
