@@ -5,17 +5,25 @@
 //! costs S3 prices, idles at zero requests, and per-tenant usage falls out
 //! of prefix-native tooling (Storage Lens, inventory, access logs).
 //!
-//! # Identity comes from the environment, not the config
+//! # Two construction modes, one trust rule
 //!
-//! In multi-tenant deployments, apps (and their runtime config) are
-//! untrusted, so this provider is **environment-first**: the platform
-//! injects `SPIN_KV_S3_BUCKET`, `SPIN_KV_S3_PREFIX` (the tenant root), and
-//! prefix-scoped credentials into each tenant's process, and a tenant's
-//! runtime config says nothing but `type = "s3"` per store label. The label
-//! becomes a path segment under the tenant root, so a tenant can organize
-//! stores freely and reach nothing else. Config fields exist as overrides
-//! for single-tenant/self-hosted use where operator and tenant are the same
-//! party.
+//! Identity (bucket, prefix, credentials) must come from whoever is
+//! trusted, and the two modes differ only in who that is:
+//!
+//! - **Managed** ([`ManagedStore`] / [`ManagedS3KeyValueStore`]): for
+//!   shared multi-tenant runtimes. The platform host supplies identity from
+//!   its own records, per manager; the tenant-facing table is empty by
+//!   definition and every field a tenant writes is rejected as unknown. No
+//!   environment variables are read - process-global state cannot represent
+//!   many tenants in one process. Credentials are typically
+//!   [renewable](RenewCredentials) STS issuances scoped to the prefix.
+//! - **Self-hosted / BYO** ([`S3KeyValueStore`]): operator and tenant are
+//!   the same party. The table (or the `SPIN_KV_S3_*` environment, for a
+//!   one-tenant-per-process shape) carries identity, and the store label
+//!   still nests under the prefix.
+//!
+//! The modes never mix: both makers claim the `s3` type string, so
+//! registering both in one runtime fails loudly at startup.
 //!
 //! Either way, the enforcement is the credential: scope it to the prefix
 //! (for fleets, one shared role plus an STS inline session policy per
@@ -46,7 +54,13 @@ use serde::Deserialize;
 use spin_core::async_trait;
 use spin_factor_key_value::runtime_config::spin::MakeKeyValueStore;
 
+mod credentials;
+mod managed;
 mod store;
+pub use credentials::{RenewCredentials, ScopedCredentials};
+pub use managed::{
+    ManagedCredentials, ManagedS3KeyValueRuntimeConfig, ManagedS3KeyValueStore, ManagedStore,
+};
 pub use store::{ClientFuture, KeyValueS3};
 
 /// The environment variables the platform injects; each is the fallback
@@ -62,7 +76,11 @@ pub mod env {
     pub const ALLOW_HTTP: &str = "SPIN_KV_S3_ALLOW_HTTP";
 }
 
-/// The `s3` key-value store type.
+/// The `s3` key-value store type for self-hosted / BYO use.
+///
+/// Identity comes from the config table with `SPIN_KV_S3_*` environment
+/// fallbacks. Shared multi-tenant runtimes use
+/// [`ManagedS3KeyValueStore`] instead, which reads neither.
 #[derive(Default)]
 pub struct S3KeyValueStore {
     _priv: (),
