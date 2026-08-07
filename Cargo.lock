@@ -2707,7 +2707,7 @@ dependencies = [
 [[package]]
 name = "spin-app"
 version = "4.1.0-pre0"
-source = "git+https://github.com/carsonfarmer/spin?rev=cd11d9217e143e8fa359096710f026c7e4f65608#cd11d9217e143e8fa359096710f026c7e4f65608"
+source = "git+https://github.com/spinframework/spin?rev=cd11d9217e143e8fa359096710f026c7e4f65608#cd11d9217e143e8fa359096710f026c7e4f65608"
 dependencies = [
  "anyhow",
  "serde",
@@ -2718,7 +2718,7 @@ dependencies = [
 [[package]]
 name = "spin-connection-semaphore"
 version = "4.1.0-pre0"
-source = "git+https://github.com/carsonfarmer/spin?rev=cd11d9217e143e8fa359096710f026c7e4f65608#cd11d9217e143e8fa359096710f026c7e4f65608"
+source = "git+https://github.com/spinframework/spin?rev=cd11d9217e143e8fa359096710f026c7e4f65608#cd11d9217e143e8fa359096710f026c7e4f65608"
 dependencies = [
  "anyhow",
  "spin-telemetry",
@@ -2729,7 +2729,7 @@ dependencies = [
 [[package]]
 name = "spin-core"
 version = "4.1.0-pre0"
-source = "git+https://github.com/carsonfarmer/spin?rev=cd11d9217e143e8fa359096710f026c7e4f65608#cd11d9217e143e8fa359096710f026c7e4f65608"
+source = "git+https://github.com/spinframework/spin?rev=cd11d9217e143e8fa359096710f026c7e4f65608#cd11d9217e143e8fa359096710f026c7e4f65608"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2740,7 +2740,7 @@ dependencies = [
 [[package]]
 name = "spin-factor-key-value"
 version = "4.1.0-pre0"
-source = "git+https://github.com/carsonfarmer/spin?rev=cd11d9217e143e8fa359096710f026c7e4f65608#cd11d9217e143e8fa359096710f026c7e4f65608"
+source = "git+https://github.com/spinframework/spin?rev=cd11d9217e143e8fa359096710f026c7e4f65608#cd11d9217e143e8fa359096710f026c7e4f65608"
 dependencies = [
  "anyhow",
  "serde",
@@ -2762,7 +2762,7 @@ dependencies = [
 [[package]]
 name = "spin-factor-otel"
 version = "4.1.0-pre0"
-source = "git+https://github.com/carsonfarmer/spin?rev=cd11d9217e143e8fa359096710f026c7e4f65608#cd11d9217e143e8fa359096710f026c7e4f65608"
+source = "git+https://github.com/spinframework/spin?rev=cd11d9217e143e8fa359096710f026c7e4f65608#cd11d9217e143e8fa359096710f026c7e4f65608"
 dependencies = [
  "anyhow",
  "indexmap 2.14.0",
@@ -2781,7 +2781,7 @@ dependencies = [
 [[package]]
 name = "spin-factors"
 version = "4.1.0-pre0"
-source = "git+https://github.com/carsonfarmer/spin?rev=cd11d9217e143e8fa359096710f026c7e4f65608#cd11d9217e143e8fa359096710f026c7e4f65608"
+source = "git+https://github.com/spinframework/spin?rev=cd11d9217e143e8fa359096710f026c7e4f65608#cd11d9217e143e8fa359096710f026c7e4f65608"
 dependencies = [
  "anyhow",
  "serde",
@@ -2795,7 +2795,7 @@ dependencies = [
 [[package]]
 name = "spin-factors-derive"
 version = "4.1.0-pre0"
-source = "git+https://github.com/carsonfarmer/spin?rev=cd11d9217e143e8fa359096710f026c7e4f65608#cd11d9217e143e8fa359096710f026c7e4f65608"
+source = "git+https://github.com/spinframework/spin?rev=cd11d9217e143e8fa359096710f026c7e4f65608#cd11d9217e143e8fa359096710f026c7e4f65608"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2824,7 +2824,7 @@ dependencies = [
 [[package]]
 name = "spin-locked-app"
 version = "4.1.0-pre0"
-source = "git+https://github.com/carsonfarmer/spin?rev=cd11d9217e143e8fa359096710f026c7e4f65608#cd11d9217e143e8fa359096710f026c7e4f65608"
+source = "git+https://github.com/spinframework/spin?rev=cd11d9217e143e8fa359096710f026c7e4f65608#cd11d9217e143e8fa359096710f026c7e4f65608"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2838,12 +2838,12 @@ dependencies = [
 [[package]]
 name = "spin-resource-table"
 version = "4.1.0-pre0"
-source = "git+https://github.com/carsonfarmer/spin?rev=cd11d9217e143e8fa359096710f026c7e4f65608#cd11d9217e143e8fa359096710f026c7e4f65608"
+source = "git+https://github.com/spinframework/spin?rev=cd11d9217e143e8fa359096710f026c7e4f65608#cd11d9217e143e8fa359096710f026c7e4f65608"
 
 [[package]]
 name = "spin-serde"
 version = "4.1.0-pre0"
-source = "git+https://github.com/carsonfarmer/spin?rev=cd11d9217e143e8fa359096710f026c7e4f65608#cd11d9217e143e8fa359096710f026c7e4f65608"
+source = "git+https://github.com/spinframework/spin?rev=cd11d9217e143e8fa359096710f026c7e4f65608#cd11d9217e143e8fa359096710f026c7e4f65608"
 dependencies = [
  "anyhow",
  "base64",
@@ -2856,7 +2856,7 @@ dependencies = [
 [[package]]
 name = "spin-telemetry"
 version = "4.1.0-pre0"
-source = "git+https://github.com/carsonfarmer/spin?rev=cd11d9217e143e8fa359096710f026c7e4f65608#cd11d9217e143e8fa359096710f026c7e4f65608"
+source = "git+https://github.com/spinframework/spin?rev=cd11d9217e143e8fa359096710f026c7e4f65608#cd11d9217e143e8fa359096710f026c7e4f65608"
 dependencies = [
  "anyhow",
  "http 0.2.12",
@@ -2876,7 +2876,7 @@ dependencies = [
 [[package]]
 name = "spin-wasi-async"
 version = "4.1.0-pre0"
-source = "git+https://github.com/carsonfarmer/spin?rev=cd11d9217e143e8fa359096710f026c7e4f65608#cd11d9217e143e8fa359096710f026c7e4f65608"
+source = "git+https://github.com/spinframework/spin?rev=cd11d9217e143e8fa359096710f026c7e4f65608#cd11d9217e143e8fa359096710f026c7e4f65608"
 dependencies = [
  "anyhow",
  "spin-core",
@@ -2886,7 +2886,7 @@ dependencies = [
 [[package]]
 name = "spin-world"
 version = "4.1.0-pre0"
-source = "git+https://github.com/carsonfarmer/spin?rev=cd11d9217e143e8fa359096710f026c7e4f65608#cd11d9217e143e8fa359096710f026c7e4f65608"
+source = "git+https://github.com/spinframework/spin?rev=cd11d9217e143e8fa359096710f026c7e4f65608#cd11d9217e143e8fa359096710f026c7e4f65608"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2993,7 +2993,7 @@ dependencies = [
 [[package]]
 name = "terminal"
 version = "4.1.0-pre0"
-source = "git+https://github.com/carsonfarmer/spin?rev=cd11d9217e143e8fa359096710f026c7e4f65608#cd11d9217e143e8fa359096710f026c7e4f65608"
+source = "git+https://github.com/spinframework/spin?rev=cd11d9217e143e8fa359096710f026c7e4f65608#cd11d9217e143e8fa359096710f026c7e4f65608"
 dependencies = [
  "termcolor",
 ]
