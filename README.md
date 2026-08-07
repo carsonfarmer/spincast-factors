@@ -61,9 +61,11 @@ cargo test --workspace    # includes behavioural tests over an in-memory
 cargo clippy --workspace --all-targets
 ```
 
-Spin is a pinned git dependency on **upstream** `spinframework/spin`;
-the crates use only interfaces stock Spin already ships. Nothing here
-requires the Spincast fork.
+Spin is a git dependency on **upstream** `spinframework/spin`, pinned
+to the latest release (`v4.0.2`); the crates use only interfaces stock
+Spin already ships. Nothing here requires the Spincast fork. The full
+test suite also passes against the tip of upstream `main`
+(`58b0f6d8`, 2026-08).
 
 ## License
 

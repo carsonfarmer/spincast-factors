@@ -30,8 +30,8 @@ tracing = { version = "0.1.44", features = ["log"] }
 
 # Spin's key-value factor seam, from upstream: this workspace needs
 # nothing beyond what stock Spin already ships.
-spin-core = { git = "https://github.com/spinframework/spin", rev = "cd11d9217e143e8fa359096710f026c7e4f65608" }
-spin-factor-key-value = { git = "https://github.com/spinframework/spin", rev = "cd11d9217e143e8fa359096710f026c7e4f65608" }
+spin-core = { git = "https://github.com/spinframework/spin", tag = "v4.0.2" }
+spin-factor-key-value = { git = "https://github.com/spinframework/spin", tag = "v4.0.2" }
 
 [workspace.lints.clippy]
 blocks_in_conditions = "allow"
