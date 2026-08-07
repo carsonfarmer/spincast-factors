@@ -23,6 +23,8 @@ tokio = { workspace = true, features = ["sync"] }
 tracing = { workspace = true }
 
 [dev-dependencies]
+anyhow = { workspace = true }
+futures = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread"] }
 toml = { workspace = true }
 
