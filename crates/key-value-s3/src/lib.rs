@@ -60,9 +60,6 @@ pub mod env {
     pub const ENDPOINT: &str = "SPIN_KV_S3_ENDPOINT";
     /// Fallback for `allow_http` (`1`/`true`), for local development.
     pub const ALLOW_HTTP: &str = "SPIN_KV_S3_ALLOW_HTTP";
-    /// Fallback for `express` (`1`/`true`): use S3 Express One Zone
-    /// session authentication (directory buckets).
-    pub const EXPRESS: &str = "SPIN_KV_S3_EXPRESS";
 }
 
 /// The `s3` key-value store type.
@@ -114,13 +111,6 @@ pub struct S3KeyValueRuntimeConfig {
     /// Permit `http://` endpoints. Falls back to `SPIN_KV_S3_ALLOW_HTTP`.
     #[serde(default)]
     pub allow_http: Option<bool>,
-    /// Use S3 Express One Zone session authentication (directory
-    /// buckets). Falls back to `SPIN_KV_S3_EXPRESS`. Note that directory
-    /// buckets authorize at bucket granularity, so prefix-scoped
-    /// credentials - the pool model's isolation - do not apply; see the
-    /// README before enabling this in multi-tenant deployments.
-    #[serde(default)]
-    pub express: Option<bool>,
 }
 
 /// The fully resolved configuration: every table field with its
@@ -134,7 +124,6 @@ struct Resolved {
     secret_key: Option<String>,
     token: Option<String>,
     allow_http: bool,
-    express: bool,
 }
 
 /// Applies environment fallbacks to `config`. `var` is the environment
@@ -166,7 +155,6 @@ fn resolve_config(
         secret_key: config.secret_key,
         token: config.token,
         allow_http: flag(config.allow_http, env::ALLOW_HTTP),
-        express: flag(config.express, env::EXPRESS),
     })
 }
 
@@ -242,9 +230,6 @@ async fn build_client(config: Resolved) -> Result<Arc<dyn ObjectStore>, String> 
     if config.allow_http {
         builder = builder.with_allow_http(true);
     }
-    if config.express {
-        builder = builder.with_s3_express(true);
-    }
 
     match builder.build() {
         Ok(store) => Ok(Arc::new(store)),
@@ -311,14 +296,13 @@ mod tests {
         let resolved = resolve_config(config, |name| match name {
             env::BUCKET => Some("platform-bucket".into()),
             env::PREFIX => Some("tenant-a".into()),
-            env::EXPRESS => Some("1".into()),
+            env::ALLOW_HTTP => Some("1".into()),
             _ => None,
         })
         .unwrap();
         assert_eq!(resolved.bucket, "platform-bucket");
         assert_eq!(resolved.prefix, "tenant-a");
-        assert!(resolved.express);
-        assert!(!resolved.allow_http);
+        assert!(resolved.allow_http);
     }
 
     #[test]
@@ -327,19 +311,19 @@ mod tests {
             r#"
             bucket = "mine"
             prefix = "my/prefix"
-            express = false
+            allow_http = false
             "#,
         )
         .unwrap();
         let resolved = resolve_config(config, |name| match name {
             env::BUCKET => Some("platform-bucket".into()),
             env::PREFIX => Some("tenant-a".into()),
-            env::EXPRESS => Some("1".into()),
+            env::ALLOW_HTTP => Some("1".into()),
             _ => None,
         })
         .unwrap();
         assert_eq!(resolved.bucket, "mine");
         assert_eq!(resolved.prefix, "my/prefix");
-        assert!(!resolved.express);
+        assert!(!resolved.allow_http);
     }
 }

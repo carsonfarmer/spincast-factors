@@ -30,16 +30,13 @@ and the store service itself refuses anything beyond them. Config chooses
 which door to walk up to; the credential decides which doors open.
 
 Config fields (`bucket`, `prefix`, `region`, `endpoint`, credentials,
-`allow_http`, `express`, …) exist as overrides for single-tenant/
-self-hosted use, where operator and tenant are the same party.
+`allow_http`, …) exist as overrides for single-tenant/self-hosted use,
+where operator and tenant are the same party.
 
-An `express` flag (or `SPIN_KV_S3_EXPRESS`) switches on S3 Express One
-Zone session authentication for directory buckets - single-digit-
-millisecond latency and cheaper requests. Note the isolation trade:
-directory buckets authorize at *bucket* granularity, so prefix-scoped
-credentials do not apply there; in the pool model, Express fits
-per-tenant-bucket (silo) layouts or platform-internal stores, not the
-shared-bucket tenant pool.
+(S3 Express One Zone is deliberately not supported: directory buckets
+authorize at bucket granularity, so prefix-scoped credentials - the pool
+model's isolation - cannot apply. Revisit if AWS adds prefix-scoped
+authorization there.)
 
 ## Registering in a runtime
 
