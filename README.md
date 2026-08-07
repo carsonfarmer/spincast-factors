@@ -61,6 +61,22 @@ cargo test --workspace    # includes behavioural tests over an in-memory
 cargo clippy --workspace --all-targets
 ```
 
+### Real-S3 qualification
+
+The default suite runs against an in-memory object store — fast, offline,
+and thorough for the adapter, but not proof of AWS S3's error mapping,
+pagination, read-after-write visibility, or credential handling. A separate
+opt-in suite runs the same operations against a real, disposable bucket:
+
+```sh
+SPINCAST_S3_TEST_BUCKET=my-disposable-bucket SPINCAST_S3_TEST_REGION=us-east-1     cargo test -p spin-key-value-s3 --test real_s3 -- --test-threads=1
+```
+
+Credentials come from the standard AWS chain. Without `SPINCAST_S3_TEST_BUCKET`
+every case skips, so ordinary `cargo test` and CI never create live
+resources. Each case writes under a unique run prefix and deletes everything
+it created during teardown, verifying no residue remains.
+
 Spin is a git dependency on **upstream** `spinframework/spin`, pinned
 to the latest release (`v4.0.2`); the crates use only interfaces stock
 Spin already ships. Nothing here requires the Spincast fork. The full
