@@ -32,7 +32,7 @@ use serde::Deserialize;
 use spin_factor_key_value::runtime_config::spin::MakeKeyValueStore;
 
 use crate::credentials::{RefreshingCredentials, RenewCredentials};
-use crate::store::KeyValueS3;
+use crate::store::{KeyValueS3, Limits};
 
 /// Trusted, host-supplied identity for one store manager.
 ///
@@ -51,6 +51,8 @@ pub struct ManagedStore {
     pub allow_http: bool,
     /// The credential source, scoped to `prefix`.
     pub credentials: ManagedCredentials,
+    /// Per-operation limits. Defaults suit a small multi-tenant runtime.
+    pub limits: Limits,
 }
 
 /// The credential source for a [`ManagedStore`].
@@ -113,11 +115,10 @@ impl ManagedStore {
                 .map_err(|err| anyhow::anyhow!("invalid managed s3 configuration: {err}"))?,
         );
 
-        Ok(KeyValueS3::new(
-            summary,
-            root,
-            Box::pin(async move { Ok(store) }),
-        ))
+        Ok(
+            KeyValueS3::new(summary, root, Box::pin(async move { Ok(store) }))
+                .with_limits(self.limits),
+        )
     }
 }
 
@@ -178,6 +179,7 @@ mod tests {
                 secret_key: "secret".into(),
                 token: Some("token".into()),
             },
+            limits: Limits::default(),
         }
     }
 
